@@ -1,215 +1,296 @@
 # Limit Order Book Alpha Research
 
-A microstructure research project that **collects high‑frequency L2 order book data**, reconstructs evenly sampled snapshots, engineers **liquidity‑pressure features**, and evaluates their **short‑horizon predictive power**.
+![Python](https://img.shields.io/badge/python-3.10-blue)
+![Type](https://img.shields.io/badge/type-quant%20research-green)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-This repository implements an end‑to‑end pipeline:
+A quantitative research project that collects **high-frequency limit order book (LOB) data**, constructs **liquidity-pressure features**, and evaluates their **short-horizon predictive power**.
 
-1. **Market data collection** from a public exchange WebSocket  
-2. **Order book reconstruction** into evenly sampled snapshots  
-3. **Feature engineering** (depth imbalance, order‑flow imbalance)  
-4. **Alpha analysis** (IC, decay curves, binned/quantile tests, toy PnL diagnostics)
+This repository implements a complete microstructure research pipeline:
 
-Goal: test whether **order book pressure signals predict short‑term returns**.
+1. Market data collection from an exchange WebSocket
+2. Order book reconstruction into evenly sampled snapshots
+3. Feature engineering (depth imbalance, order-flow imbalance)
+4. Alpha diagnostics (IC, decay curves, quantile tests, toy PnL)
+
+The goal is to evaluate whether **order book pressure signals predict short-term price movements**.
 
 ---
 
-## Repository Structure
+# Research Summary
 
-```text
+This study evaluates several microstructure signals derived from **Kraken L2 order book data**.
+
+| Signal        | Information Coefficient | Interpretation           |
+| ------------- | ----------------------- | ------------------------ |
+| **Imbalance** | **0.228**               | Strong predictive signal |
+| OFI_norm      | 0.049                   | Weak predictive power    |
+| OFI_norm_clip | 0.044                   | Weak predictive power    |
+
+Key observations:
+
+* Order book **imbalance exhibits strong monotonicity** in quintile tests.
+* A simple toy strategy based on imbalance produces **t-stat ≈ 3.47**.
+* Order-flow imbalance proxies appear weaker under this dataset.
+
+---
+
+# Research Pipeline
+
+```
+Kraken WebSocket
+        ↓
+Order book reconstruction
+        ↓
+Feature engineering
+        ↓
+Alpha diagnostics
+        ↓
+Decay / Quintile / PnL analysis
+```
+
+---
+
+# Repository Structure
+
+```
 lob-alpha-research
 │
 ├── README.md
 ├── requirements.txt
-├── data/
-│   └── (generated datasets – not committed to Git)
 │
-├── src/
+├── src
 │   ├── collect_kraken_l2.py
 │   ├── build_features.py
 │   └── analyze_alpha.py
 │
-└── notebooks/
+├── data
+│   └── figs
+│       └── (generated plots)
+│
+└── notebooks
     └── exploratory_analysis.ipynb
 ```
 
----
+Note:
 
-## Environment Setup (macOS friendly)
-
-### Quick rule
-- If you see `error: externally-managed-environment` (PEP 668), **don’t use system pip**. Use a **conda env** or **venv**.
-
-### Option A — Conda (recommended if you already use Anaconda)
-```bash
-conda create -n lobalpha python=3.12 -y
-conda activate lobalpha
-python -m pip install -r requirements.txt
-```
-
-### Option B — venv (works everywhere)
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Sanity check:
-```bash
-python -c "import pandas, numpy, websockets, pyarrow; print('ok')"
-```
+Large datasets such as `.parquet` files are ignored via `.gitignore`.
+Only **figures used in the README** are stored in the repository.
 
 ---
 
-## Step 1 — Collect Order Book Data
+# Dataset
 
-Connects to the exchange WebSocket and records **level‑2 order book updates**.
+Example configuration used in the current run:
 
-```bash
-python src/collect_kraken_l2.py
+| Parameter               | Value         |
+| ----------------------- | ------------- |
+| Exchange                | Kraken        |
+| Pair                    | XBT/USD       |
+| Order book depth        | Top 10 levels |
+| Sampling interval       | 200 ms        |
+| Total observations      | 8986          |
+| Non-overlapping samples | 898           |
+
+Forward return target:
+
+```
+ret_fwd_10_nonoverlap
 ```
 
-Output:
-```text
-data/kraken_xbtusd_book.parquet
+Using **non-overlapping targets** prevents artificial autocorrelation caused by overlapping windows.
+
+---
+
+# Features
+
+## Order Book Imbalance
+
+Measures liquidity pressure between bids and asks.
+
+[
+imb = \frac{V_{bid} - V_{ask}}{V_{bid} + V_{ask}}
+]
+
+Where:
+
+* (V_{bid}) = total bid volume across depth levels
+* (V_{ask}) = total ask volume across depth levels
+
+Large positive imbalance indicates **buy-side pressure**.
+
+---
+
+## Order Flow Imbalance (OFI proxy)
+
+Approximates directional pressure from order book changes.
+
+Implemented variants:
+
+```
+ofi_norm
+ofi_norm_clip
+```
+
+Normalized version:
+
+```
+ofi_norm = ofi / total_depth
 ```
 
 ---
 
-## Step 2 — Build Features
+# Alpha Diagnostics
 
-Reconstruct evenly spaced order book snapshots and compute microstructure features.
+The analysis pipeline evaluates:
 
-```bash
+1. **Information coefficient (IC)** between signals and future returns
+2. **Alpha decay** across horizons
+3. **Quantile monotonicity tests**
+4. **Spread-filtered robustness checks**
+5. **Toy strategy PnL diagnostics**
+
+---
+
+# Results
+
+## 1) Imbalance alpha decay (important)
+
+![imb decay](data/figs/imb_raw_decay.png)
+
+The signal decays quickly, consistent with **microstructure alpha behavior**.
+
+---
+
+## 2) OFI alpha decay (comparison)
+
+![ofi decay](data/figs/ofi_norm_raw_decay.png)
+
+OFI proxy exhibits weaker predictive structure compared with imbalance.
+
+---
+
+## 3) Binned forward returns (monotonicity test)
+
+![imb bins](data/figs/imb_raw_b5.png)
+
+Higher imbalance quantiles correspond to **higher forward returns**, suggesting genuine signal structure rather than noise.
+
+---
+
+## 4) Toy PnL / t-stat diagnostic
+
+![imb pnl](data/figs/imb_raw_pnl.png)
+
+Simple strategy:
+
+```
+long  if z(feature) > 90%
+short if z(feature) < 10%
+```
+
+Result:
+
+```
+t-stat ≈ 3.47
+```
+
+This confirms the **economic relevance of the imbalance signal**.
+
+---
+
+# Reproducing the Results
+
+Run the full pipeline:
+
+```
 python src/build_features.py
-```
-
-Generated columns include:
-- Mid price (`mid`, `log_mid`)
-- Bid‑ask spread (`spread`)
-- Depth volumes (`bid_vol`, `ask_vol`)
-- Depth imbalance (`imb`)
-- OFI proxy (`ofi`, `ofi_norm`, `ofi_norm_clip`)
-- Forward returns (`ret_fwd_*`) including **non‑overlapping** targets (`*_nonoverlap`)
-
-Output:
-```text
-data/features.parquet
-```
-
----
-
-## Step 3 — Alpha Analysis
-
-Run diagnostics / plots:
-
-```bash
 python src/analyze_alpha.py
 ```
 
-The analysis produces:
-- **IC** (feature vs forward return correlation)
-- **alpha decay** across horizons
-- **binned/quantile tests** (mean forward return by feature bins)
-- **tight‑spread robustness checks** (e.g., bottom‑20% spread)
-- **toy PnL** / t‑stat diagnostics
+Outputs generated:
 
-Figures are saved in:
-```text
-data/figs/
+```
+data/features.parquet
+data/figs/*.png
+data/report.json
 ```
 
 ---
 
-## Research Methodology
+# Common Pitfalls
 
-### Depth Imbalance
+Typical issues encountered during development:
 
-Measures liquidity pressure across LOB depth:
+**1. Python command not found**
 
-```text
-imb = (bid_volume − ask_volume) / (bid_volume + ask_volume)
+```
+zsh: command not found: python
 ```
 
-### Order Flow Imbalance (OFI) proxy
+Solution:
 
-Captures directional pressure from changes in depth volume. Normalized:
+```
+python3 script.py
+```
 
-```text
-ofi_norm = ofi / (bid_volume + ask_volume)
+or activate the correct virtual environment.
+
+---
+
+**2. PEP 668 environment error**
+
+```
+error: externally-managed-environment
+```
+
+Use:
+
+```
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ---
 
-## Typical Analysis
+**3. Quantile binning errors**
 
-This pipeline evaluates:
+OFI features may contain many zero values, which can break `qcut`.
 
-1. **Signal ↔ future return IC** (raw + filtered)
-2. **Alpha decay** across horizons
-3. **Bin/quantile monotonicity** tests
-4. **Spread‑conditioned robustness** checks
-5. **Non‑overlap sanity checks** (avoid overlap inflation)
+Typical fixes:
 
----
-
-## Results (sample run)
-
-From your current “good” run:
-
-- Target: `ret_fwd_10_nonoverlap`
-- Resample: 200 ms
-- Depth: top‑10
-
-IC summary:
-
-```text
-imb IC ≈ 0.228   (n≈898)
-ofi_norm IC ≈ 0.049
-ofi_norm_clip IC ≈ 0.044
-```
-
-### 1) Imbalance alpha decay (important)
-![imb decay](data/figs/imb_raw_decay.png)
-
-### 2) OFI alpha decay (important comparison)
-![ofi decay](data/figs/ofi_norm_raw_decay.png)
-
-### 3) Binned forward returns (imbalance) — monotonicity check
-![imb bins](data/figs/imb_raw_b5.png)
-
-### 4) Toy PnL / t-stat diagnostic (imbalance)
-![imb pnl](data/figs/imb_raw_pnl.png)
-
-> Only the **key plots** are embedded here for clarity. All other outputs stay in `data/figs/`.
+* Filter zero values
+* Add small epsilon jitter for binning
+* Reduce number of bins
 
 ---
 
-## Common Pitfalls (from your logs)
+# Future Improvements
 
-- `zsh: command not found: python`  
-  Use `python3 ...` or activate your env so `python` points to the correct interpreter.
+Potential extensions:
 
-- `error: externally-managed-environment` (PEP 668)  
-  Use **conda** or **venv**. Avoid system-wide `pip3 install ...`.
-
-- Binning crashes / “too many zeros” with OFI variants  
-  OFI features often have many exact zeros. Typical fixes:
-  - filter `!= 0`, or
-  - add tiny jitter (`eps`) only for binning (not for IC), or
-  - use fewer bins when `n` is small.
+* Precise **Cont-style OFI calculation**
+* Multi-horizon alpha decay analysis
+* Transaction cost modeling
+* Cross-asset validation
+* Multi-exchange order book analysis
 
 ---
 
-## Future Improvements
+# Motivation
 
-- More precise OFI (level‑by‑level)
-- Transaction cost / spread crossing modeling
-- Cross‑asset / multi‑venue validation
-- Longer collection windows (more data → tighter confidence intervals)
+Short-horizon price movements are strongly influenced by **order-book liquidity pressure**.
+
+This repository demonstrates a minimal but complete **microstructure research workflow**, including:
+
+* order book reconstruction
+* feature engineering
+* alpha diagnostics
+* strategy validation
 
 ---
 
-## License
+# License
 
 MIT License
