@@ -1,0 +1,9 @@
+data/*
+!data/figs/
+data/figs/*
+*.parquet
+*.csv
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.DS_Store
