@@ -1,6 +1,6 @@
 data/*
 !data/figs/
-data/figs/*
+
 *.parquet
 *.csv
 __pycache__/
